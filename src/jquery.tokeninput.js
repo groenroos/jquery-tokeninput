@@ -19,8 +19,10 @@ var DEFAULT_SETTINGS = {
     propertyToSearch: "name",
     jsonContainer: null,
     contentType: "json",
+    allowCreation: false,
+    creationPosition: "bottom",
 
-	// Prepopulation settings
+    // Prepopulation settings
     prePopulate: null,
     processPrePopulate: false,
 
@@ -29,7 +31,8 @@ var DEFAULT_SETTINGS = {
     noResultsText: "No results",
     searchingText: "Searching...",
     deleteText: "&times;",
-    animateDropdown: true,
+    createTokenText: "",
+    animateDropdown: false,
     theme: null,
     resultsFormatter: function(item){ return "<li>" + item[this.propertyToSearch]+ "</li>" },
     tokenFormatter: function(item) { return "<li><p>" + item[this.propertyToSearch] + "</p></li>" },
@@ -47,7 +50,10 @@ var DEFAULT_SETTINGS = {
     onReady: null,
 
     // Other settings
-    idPrefix: "token-input-"
+    idPrefix: "token-input-",
+
+    // Keep track if the input is currently in disabled mode
+    disabled: false
 };
 
 // Default classes to use when theming
@@ -61,7 +67,8 @@ var DEFAULT_CLASSES = {
     dropdownItem: "token-input-dropdown-item",
     dropdownItem2: "token-input-dropdown-item2",
     selectedDropdownItem: "token-input-selected-dropdown-item",
-    inputToken: "token-input-input-token"
+    inputToken: "token-input-input-token",
+    disabled: "token-input-disabled"
 };
 
 // Input box position "enum"
@@ -491,7 +498,7 @@ $.TokenList = function (input, url_or_data, settings) {
             token_list.children().each(function () {
                 var existing_token = $(this);
                 var existing_data = $.data(existing_token.get(0), "tokeninput");
-                if(existing_data && existing_data.id === item.id) {
+                if(existing_data && (existing_data.id === item.id || item.wasCreated && existing_data.name === item.name)) {
                     found_existing_token = existing_token;
                     return false;
                 }
@@ -503,6 +510,11 @@ $.TokenList = function (input, url_or_data, settings) {
                 input_box.focus();
                 return;
             }
+        }
+
+        // For newly created tokens, restore the original name without the text saying it is a new token
+        if(settings.allowCreation && item.wasCreated) {
+            item.name = item.id; // restore the name without the token creation text
         }
 
         // Insert the new tokens
@@ -653,7 +665,7 @@ $.TokenList = function (input, url_or_data, settings) {
 
     // Highlight the query part of the search term
     function highlight_term(value, term) {
-        return value.replace(new RegExp("(?![^&;]+;)(?!<[^<>]*)(" + term + ")(?![^<>]*>)(?![^&;]+;)", "gi"), "<b>$1</b>");
+        return value.replace(new RegExp("(?![^&;]+;)(?!<[^<>]*)(" + term + ")(?![^<>]*>)(?![^&;]+;)", "gi"), "<strong>$1</strong>");
     }
 
     function find_value_and_highlight_term(template, value, term) {
@@ -757,6 +769,7 @@ $.TokenList = function (input, url_or_data, settings) {
         var cache_key = query + computeURL();
         var cached_results = cache.get(cache_key);
         if(cached_results) {
+            console.log(cached_results)
             populate_dropdown(query, cached_results);
         } else {
             // Are we doing an ajax search or local data search?
@@ -791,10 +804,14 @@ $.TokenList = function (input, url_or_data, settings) {
                   if($.isFunction(settings.onResult)) {
                       results = settings.onResult.call(hidden_input, results);
                   }
-                  cache.add(cache_key, settings.jsonContainer ? results[settings.jsonContainer] : results);
+                  if(settings.allowCreation) {
+                      handleCreation(results);
+                  } else {
+                      cache.add(cache_key, settings.jsonContainer ? results[settings.jsonContainer] : results);
+                  }
 
                   // only populate the dropdown if the results are associated with the active search query
-                  if(input_box.val().toLowerCase() === query) {
+                  if(input_box.val().toLowerCase() === query.toLowerCase()) {
                       populate_dropdown(query, settings.jsonContainer ? results[settings.jsonContainer] : results);
                   }
                 };
@@ -810,9 +827,44 @@ $.TokenList = function (input, url_or_data, settings) {
                 if($.isFunction(settings.onResult)) {
                     results = settings.onResult.call(hidden_input, results);
                 }
-                cache.add(cache_key, results);
+                if(settings.allowCreation) {
+                    handleCreation(results);
+                } else {
+                    cache.add(cache_key, results);
+                }
                 populate_dropdown(query, results);
             }
+        }
+    }
+
+    function handleCreation(results) {
+        var displayedItem = {};
+        displayedItem['name'] = input_box.val() + ' ' + settings.createTokenText;
+        displayedItem[settings.tokenValue] = input_box.val();
+        displayedItem['wasCreated'] = true;
+        
+        var creationExists = false;
+        // check if exists
+        for(x in results){
+            if(results[x].name.toLowerCase() == input_box.val().toLowerCase()){
+                creationExists = true;
+            }
+        }
+        
+        // display created token in its position
+        if(!creationExists){
+            if(settings.creationPosition == "top"){
+                results.unshift(displayedItem);
+            } else {
+                results.push(displayedItem);
+            }
+        }
+
+        if($.isFunction(settings.onCreate)) {
+            var item = {};
+            item['name'] = input_box.val();
+            item[settings.tokenValue] = input_box.val();
+            settings.onCreate.call(hidden_input, item);
         }
     }
 
